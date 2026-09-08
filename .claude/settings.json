@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git *)",
+      "Bash(git)",
+      "Bash(gh *)",
+      "Write(.git/**)",
+      "Edit(.git/**)",
+      "Write(.gitignore)",
+      "Edit(.gitignore)"
+    ]
+  }
+}
