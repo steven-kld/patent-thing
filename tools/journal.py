@@ -10,7 +10,8 @@
     то есть попал в отдельный, более ранний коммит;
   * на один id не более одного result;
   * decision_rule обязан содержать оператор сравнения и число;
-  * artifact проверяется по sha256 в момент записи result;
+  * artifact проверяется по sha256 в момент записи result и попадает
+    в тот же коммит, если лежит внутри репозитория;
   * после каждой записи — git add + git commit, один коммит на запись.
 
 Команд edit и delete нет и не должно появиться. Исправление ошибочной
@@ -262,7 +263,23 @@ def validate_result(root: Path, payload: dict, entries: list[dict]) -> tuple[int
 # ----------------------------------------------------------------------- запись
 
 
-def append_and_commit(root: Path, entry: dict, message: str) -> None:
+def artifact_in_repo(root: Path, payload: dict) -> Path | None:
+    """Путь артефакта относительно корня. None, если файл лежит снаружи."""
+    ap = Path(payload["artifact"]["path"])
+    if not ap.is_absolute():
+        ap = root / ap
+    try:
+        return ap.resolve().relative_to(root.resolve())
+    except ValueError:
+        return None
+
+
+def append_and_commit(root: Path, entry: dict, message: str,
+                      extra: Path | None = None) -> None:
+    # extra добавляется до записи строки: если git откажет (файл игнорируется,
+    # путь снаружи), журнал останется нетронутым, а не с незакоммиченным хвостом
+    if extra is not None:
+        git("-C", str(root), "add", "--", str(extra))
     line = json.dumps(entry, ensure_ascii=False, sort_keys=True)
     with (root / JOURNAL).open("a", encoding="utf-8") as f:
         f.write(line + "\n")
@@ -302,6 +319,7 @@ def cmd_result(root: Path) -> None:
     check_append_only(root)
     check_uncommitted_entries(root)
     eid, rc = validate_result(root, payload, entries)
+    art = artifact_in_repo(root, payload)
 
     same = rc == head_commit(root)
     entry = {
@@ -312,7 +330,13 @@ def cmd_result(root: Path) -> None:
         "no_intervening_commit": same,
         **payload,
     }
-    append_and_commit(root, entry, f"journal: result for #{eid}")
+    append_and_commit(root, entry, f"journal: result for #{eid}", art)
+    if art is None:
+        print(
+            f"! артефакт {payload['artifact']['path']} лежит вне репозитория "
+            "и в коммит не попал.",
+            file=sys.stderr,
+        )
     if same:
         print(
             f"! между гипотезой #{eid} и результатом не было ни одного коммита. "
