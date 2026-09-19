@@ -48,6 +48,7 @@
     journal.py diverge  < payload.json
     journal.py verify
     journal.py next-id
+    journal.py draft <род> [путь к артефакту]   скелет payload, ничего не пишет
 """
 
 from __future__ import annotations
@@ -1113,6 +1114,127 @@ def cmd_diverge(root: Path) -> None:
               + ", ".join(s for s in STAGES[first:] if s in active), file=sys.stderr)
 
 
+def cmd_draft(root: Path, args: list[str]) -> None:
+    """Скелет payload с заполненной механикой. Ничего не пишет и не коммитит.
+
+    Заполняется только то, что выводится из журнала: experiment, stage
+    заморозки, sha256 действующей заморозки Lockbox. Всё остальное — TODO,
+    и каждый TODO подобран так, что его отказывает уже существующая проверка:
+    скелет нельзя подать на запись, не отредактировав (A5). claim не
+    предлагается никогда — формулировка, написанная не автором, фиксирует не
+    его понимание (J3).
+    """
+    alias = {"freeze": "заморозка", "open": "вскрытие",
+             "close": "закрытие", "diverge": "расхождение"}
+    cmd_of = {v: k for k, v in alias.items()}
+    if not args:
+        raise Refused(
+            f"draft <род> [путь к артефакту]. Род: {sorted(cmd_of)} "
+            f"либо {sorted(alias)}")
+    kind = alias.get(args[0], args[0])
+    if kind not in KINDS:
+        raise Refused(f"род {args[0]!r} не из четырёх: {sorted(KINDS)}")
+
+    check_append_only(root)
+    entries = load_journal(root)
+    props = [e for e in current(entries)
+             if e["type"] == "заморозка" and e["stage"] == "Proposal"]
+
+    notes: list[str] = []
+    active: dict = {}
+    killed: dict = {}
+    if len(props) == 1:
+        exp = props[0]["id"]
+        active, killed = stage_state(entries, exp)
+    elif not props:
+        exp = None
+        notes.append("заморозок Proposal в журнале нет: первое событие "
+                     "эксперимента — заморозка Proposal, она себя и определяет")
+    else:
+        exp = "TODO"
+        notes.append("заморозок Proposal несколько "
+                     f"({[e['id'] for e in props]}): experiment назови сам")
+
+    if kind == "заморозка":
+        stage = "Proposal" if not props else \
+            next((s for s in STAGES if s not in active), "TODO")
+        path = args[1] if len(args) > 1 else "TODO"
+        payload = {"stage": stage,
+                   "experiment": None if stage == "Proposal" else exp,
+                   "claim": "TODO",
+                   "artifact": {"path": path},
+                   "refs": []}
+        if stage == "TODO":
+            notes.append("все девять стадий заморожены: замораживать нечего")
+        if stage in killed:
+            notes.append(
+                f"{stage} обнулена записью №{killed[stage]['by']}: восстановление "
+                f"тем же sha256 требует refs на неё, иначе это обычная новая "
+                f"заморозка и старшие стадии остаются непройденными (S4)")
+        if path == "TODO":
+            d = root / "artifacts"
+            have = sorted(f.name for f in d.iterdir()) if d.is_dir() else []
+            notes.append("путь артефакта — второй аргумент draft; "
+                         f"в artifacts/ лежат: {', '.join(have) or 'ничего'}")
+
+    elif kind == "вскрытие":
+        lb = active.get("Lockbox")
+        payload = {"stage": "TODO",
+                   "experiment": exp,
+                   "lockbox": {"freeze": lb["sha256"] if lb else "TODO",
+                               "box": "TODO"},
+                   "values": {}}
+        if not lb:
+            notes.append("действующей заморозки Lockbox нет: вскрывать нечего")
+        else:
+            try:
+                art = lockbox_artifact(root, lb)
+                notes.append(
+                    f"ящики заморозки Lockbox №{lb['id']}: " + ", ".join(
+                        f"{b} — {(v or {}).get('role')}"
+                        for b, v in sorted(art["boxes"].items())))
+            except Refused as e:
+                notes.append(f"артефакт Lockbox не читается: {e}")
+        if "Protocol" in active:
+            try:
+                rep = validate_protocol(root, load_protocol(root, active["Protocol"]),
+                                        active["Lockbox"], entries, exp)
+                notes.append("если ящик подтверждающий, набор ключей values обязан "
+                             f"совпасть точно: {sorted(rep['expected_keys'])}")
+            except Refused as e:
+                notes.append(f"действующий Protocol не проверяется: {e}")
+        notes.append("claim в скелете нет: у разведочного он запрещён — генерирует "
+                     "скрипт (J3), у подтверждающего обязателен вместе с artifact")
+
+    elif kind == "закрытие":
+        payload = {"stage": "TODO", "experiment": exp, "claim": "TODO", "refs": []}
+        notes.append("stage закрытия — где это случилось, а не следующая стадия")
+
+    else:
+        payload = {"stage": "TODO", "experiment": exp, "claim": "TODO",
+                   "refs": [], "invalidates": []}
+        notes.append("refs у расхождения обязателен: запись обязана назвать, "
+                     "с чем именно факт разошёлся")
+        notes.append("invalidates пуст — расхождение правит только текст; "
+                     "перечисленные стадии придётся пройти заново, каскад на "
+                     "старшие считает скрипт (S3)")
+        if active:
+            notes.append("действующие заморозки: " + ", ".join(
+                f"{s} №{e['id']}" for s, e in active.items()))
+
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(f"\nскелет, не запись: ничего не записано и не закоммичено.",
+          file=sys.stderr)
+    print(f"  заполни TODO и подай: "
+          f"python3 tools/journal.py {cmd_of[kind]} < payload.json", file=sys.stderr)
+    print(f"  скрипт ставит сам и из входа не примет: "
+          f"{', '.join(sorted(SET_BY_SCRIPT))} (J4)", file=sys.stderr)
+    for n in notes:
+        print("  - " + n, file=sys.stderr)
+    print("  каждый TODO отказывается существующей проверкой: скелет не проходит, "
+          "пока ты его не заполнил (A5)", file=sys.stderr)
+
+
 def cmd_next_id(root: Path) -> None:
     print(new_id(load_journal(root)))
 
@@ -1193,11 +1315,14 @@ def cmd_verify(root: Path) -> None:
 def main() -> None:
     cmds = {"freeze": cmd_freeze, "open": cmd_open, "close": cmd_close,
             "diverge": cmd_diverge, "verify": cmd_verify, "next-id": cmd_next_id}
-    if len(sys.argv) < 2 or sys.argv[1] not in cmds:
+    if len(sys.argv) < 2 or (sys.argv[1] not in cmds and sys.argv[1] != "draft"):
         print(__doc__)
         sys.exit(2)
     try:
-        cmds[sys.argv[1]](repo_root())
+        if sys.argv[1] == "draft":
+            cmd_draft(repo_root(), sys.argv[2:])
+        else:
+            cmds[sys.argv[1]](repo_root())
     except Refused as e:
         print(f"ОТКАЗ: {e}", file=sys.stderr)
         sys.exit(1)

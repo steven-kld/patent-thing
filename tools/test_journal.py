@@ -6,9 +6,11 @@
 они коммитят, и их первый прогон ручной (notes/state.md §4).
 """
 
+import contextlib
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 import pathlib
 import sys
@@ -360,6 +362,90 @@ eq("вскрытые подтверждающие", j.confirming_boxes_opened(E4
 E5 = E4 + [F(11, "Proposal", "s11"), O(12, "подтверждение", "other", 11, "принято")]
 eq("счётчик по эксперименту, а не по журналу",
    (j.promoted(E5, 3), j.promoted(E5, 11)), (1, 1))
+
+print("\n— скелет payload (draft)")
+
+# cmd_draft ничего не пишет и не коммитит. check_append_only внутри зовёт
+# `git show` в каталоге вне репозитория: команда read-only, падает, даёт пустую
+# строку. Проверяется главное свойство: незаполненный скелет отвергается теми
+# же проверками, что стоят на входе записи, — новых для него не заводилось.
+
+
+def draft(entries, *args, files=None):
+    d = pathlib.Path(tempfile.mkdtemp(prefix="journal-draft-"))
+    for name, text in (files or {}).items():
+        (d / name).write_text(text, encoding="utf-8")
+    if entries is not None:
+        (d / "journal.jsonl").write_text(
+            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries),
+            encoding="utf-8")
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        j.cmd_draft(d, list(args))
+    return json.loads(out.getvalue()), err.getvalue()
+
+
+DE = [F(1, "Proposal", "s1"), F(2, "Manifest", "s2", 1), F(3, "Universe", "s3", 1)]
+
+p0, _ = draft(None, "заморозка")
+eq("пустой журнал → стадия Proposal", p0["stage"], "Proposal")
+eq("у заморозки Proposal experiment пуст", p0["experiment"], None)
+
+p1, _ = draft(DE, "заморозка")
+eq("stage заморозки — следующая незамороженная", p1["stage"], "Lockbox")
+eq("experiment из действующей заморозки Proposal", p1["experiment"], 1)
+eq("путь артефакта не угадывается", p1["artifact"]["path"], "TODO")
+
+p2, _ = draft(DE, "заморозка", "artifacts/lockbox.json")
+eq("путь артефакта — из аргумента", p2["artifact"]["path"], "artifacts/lockbox.json")
+
+case("claim скелета отвергается check_claim (J3)",
+     lambda: j.check_claim(p1), "слишком короткий")
+for kind in ("вскрытие", "закрытие", "расхождение"):
+    q, _ = draft(DE, kind)
+    case(f"stage скелета {kind} отвергается check_stage",
+         lambda q=q: j.check_stage(q), "stage — одна из")
+
+pd, errd = draft(DE, "расхождение")
+case("refs скелета расхождения отвергается как пустой",
+     lambda: j.check_refs(pd, DE, required=True), "refs обязателен")
+eq("invalidates скелета пуст", pd["invalidates"], [])
+eq("действующие заморозки показаны", "Universe №3" in errd, True)
+
+po, erro = draft(DE, "вскрытие")
+eq("claim вскрытия не предлагается (J3)", "claim" in po, False)
+eq("values скелета пуст — cmd_open требует непустой", po["values"], {})
+eq("без заморозки Lockbox freeze не подставлен", po["lockbox"]["freeze"], "TODO")
+eq("сказано, что вскрывать нечего", "вскрывать нечего" in erro, True)
+
+LB_JSON = json.dumps({"boxes": {"scout_2015": {"role": "разведка"},
+                                "confirm_2016": {"role": "подтверждение"}}},
+                     ensure_ascii=False)
+LB_SHA = hashlib.sha256(LB_JSON.encode("utf-8")).hexdigest()
+DL = DE + [dict(F(4, "Lockbox", LB_SHA, 1), artifact={"path": "lockbox.json"})]
+pl, errl = draft(DL, "вскрытие", files={"lockbox.json": LB_JSON})
+eq("lockbox.freeze из действующей заморозки", pl["lockbox"]["freeze"], LB_SHA)
+eq("имя ящика не подставлено", pl["lockbox"]["box"], "TODO")
+eq("ящики и роли показаны", "confirm_2016 — подтверждение" in errl, True)
+
+_, errb = draft(DE + [dict(F(4, "Lockbox", "s4", 1), artifact={"path": "нет.json"})],
+                "вскрытие")
+eq("нечитаемый артефакт Lockbox не роняет draft", "не читается" in errb, True)
+
+pm, errm = draft(DE + [F(4, "Proposal", "s4")], "закрытие")
+eq("несколько Proposal → experiment не угадан", pm["experiment"], "TODO")
+eq("сказано, какие именно", "[1, 4]" in errm, True)
+
+pk, errk = draft(DE + [D(4, "Universe", ["Universe"], 1)], "заморозка")
+eq("обнулённая стадия снова следующая", pk["stage"], "Universe")
+eq("напоминание про refs на убившее расхождение (S4)", "S4" in errk, True)
+
+case("draft без рода", lambda: draft(DE), "draft <род>")
+case("draft с родом не из четырёх", lambda: draft(DE, "измерение"), "не из четырёх")
+
+for ru, en in (("заморозка", "freeze"), ("вскрытие", "open"),
+               ("закрытие", "close"), ("расхождение", "diverge")):
+    eq(f"draft {en} == draft {ru}", draft(DE, en)[0], draft(DE, ru)[0])
 
 print(f"\nитого: ok {ok}, сбоев {fail}")
 sys.exit(1 if fail else 0)
