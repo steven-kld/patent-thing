@@ -34,7 +34,9 @@
     * у подтверждающего: ящик вскрывается один раз; набор ключей values обязан
       совпадать с объявленным в Protocol точно; хеши оценщиков сверяются;
       trials вычисляется и обязан быть 1; вердикт вычисляется правилом;
-      бюджет подтверждений выведен из потолка семейного риска.
+      бюджет подтверждений выведен из потолка семейного риска;
+      candidate предъявлен и принадлежит объявленному: именному списку, а у
+      символьного кандидата "<selection>" — пространству перебора (E6, E8).
 
   расхождение (§10.5, S3)
     * invalidates перечисляет стадии; каскад на старшие считает скрипт.
@@ -77,6 +79,12 @@ ROLES = {"разведка", "подтверждение"}
 VERDICTS = {"принято", "отвергнуто", "н/п"}
 TAKES = {"point", "ci_low", "ci_high"}
 OPS = {">", ">=", "<", "<="}
+
+# Символьный кандидат: «тот, кого выберет объявленный отбор». E8 требует назвать
+# кандидата до вскрытия, а список имён требовал назвать его до перебора, то есть
+# морозить Protocol после разведки. Вклад в trials тот же 1; проверка
+# принадлежности пространству переезжает с заморозки на вскрытие.
+SELECTION = "<selection>"
 
 SET_BY_SCRIPT = {"id", "ts", "type", "sha256", "prev", "role", "trials", "verdict"}
 
@@ -485,7 +493,9 @@ def validate_protocol(root: Path, prot: dict, lockbox: dict, entries: list[dict]
         raise Refused("selection.space обязан быть непустым объектом: перечислимое "
                       "пространство перебора (E6)")
     space_ids = space_members(space)
-    outside = [c for c in cands if c not in space_ids]
+    # У символьного кандидата имени ещё нет: проверять принадлежность нечему,
+    # и она переносится на вскрытие, где кандидат предъявлен (E8).
+    outside = [] if cands == [SELECTION] else [c for c in cands if c not in space_ids]
     if outside:
         raise Refused(
             f"кандидаты {outside} не принадлежат объявленному пространству перебора. "
@@ -755,6 +765,31 @@ def check_claim(payload: dict) -> str:
     return claim
 
 
+def check_candidate(payload: dict, prot: dict) -> str:
+    """Кандидат подтверждающего вскрытия: назван до вскрытия и проверен здесь.
+
+    Именной список проверен ещё на заморозке (F8) — тут сверяется, что предъявлен
+    один из названных. У символьного кандидата имени на заморозке не было, и
+    проверка принадлежности объявленному пространству перебора — эта (E6, E8).
+    """
+    cand = str(_need(payload, "candidate", "подтверждающего вскрытия")).strip()
+    if not cand:
+        raise Refused("candidate пуст: кандидат называется до вскрытия (E8)")
+    declared = prot.get("verdict_candidates") or []
+    if declared == [SELECTION]:
+        space = space_members((prot.get("selection") or {}).get("space") or {})
+        if cand not in space:
+            raise Refused(
+                f"кандидат {cand!r} не принадлежит объявленному пространству перебора "
+                f"{sorted(space)}. Подкрутить победителя после перебора — вынести с "
+                "разведки больше, чем там было (E6)")
+    elif cand not in declared:
+        raise Refused(
+            f"кандидат {cand!r} не тот, что назван в Protocol: {declared}. Выбирать "
+            "между кандидатами на подтверждающем ящике запрещено (E8)")
+    return cand
+
+
 def check_refs(payload: dict, entries: list[dict], required: bool) -> list[int]:
     refs = payload.get("refs") or []
     if required and not refs:
@@ -1014,6 +1049,7 @@ def cmd_open(root: Path) -> None:
                 f"подтверждений {rep['promoted']}, бюджет {rep['budget']}: правило "
                 "остановки объявлено заранее и исчерпано. Следующее подтверждение — "
                 "новая гипотеза со своей ценой (F12, 4.3)")
+        candidate = check_candidate(payload, prot)
         if set(values) != rep["expected_keys"]:
             lack = sorted(rep["expected_keys"] - set(values))
             extra = sorted(set(values) - rep["expected_keys"])
@@ -1031,6 +1067,7 @@ def cmd_open(root: Path) -> None:
         verdict = evaluate_rule(prot, values)
         entry["claim"] = claim
         entry["trials"] = rep["trials"]
+        entry["candidate"] = candidate
         entry["values"] = values
         entry["verdict"] = verdict
         entry["artifact"] = {"path": art["path"]}

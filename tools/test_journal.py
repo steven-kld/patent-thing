@@ -280,6 +280,25 @@ case("кандидат вне пространства перебора",
      "не принадлежат объявленному")
 case("несуществующий ящик", lambda: V(mod(verdict_box=[box("нет")])),
      "нет в заморозке Lockbox")
+
+print("\n— символьный кандидат")
+SYM = mod(verdict_candidates=[j.SELECTION])
+eq("символьный кандидат: trials", V(SYM)["trials"], 1)
+case("символьный вперемешку с именным",
+     lambda: V(mod(verdict_candidates=[j.SELECTION, "b2"])),
+     "не принадлежат объявленному")
+eq("именной список: предъявлен названный",
+   j.check_candidate({"candidate": "b2"}, BASE), "b2")
+case("именной список: предъявлен другой",
+     lambda: j.check_candidate({"candidate": "b1"}, BASE),
+     "не тот, что назван в Protocol")
+eq("символьный: предъявлен из пространства",
+   j.check_candidate({"candidate": "b1"}, SYM), "b1")
+case("символьный: предъявлен вне пространства",
+     lambda: j.check_candidate({"candidate": "b2_подкрученный"}, SYM),
+     "не принадлежит объявленному пространству")
+case("кандидат не предъявлен вовсе", lambda: j.check_candidate({}, SYM),
+     "candidate")
 case("combine=independent при dependence=unknown",
      lambda: V(mod(multiplicity={**BASE["multiplicity"], "combine": "independent"})),
      "считается отсутствующей")

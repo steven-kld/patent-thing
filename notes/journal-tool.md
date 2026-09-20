@@ -70,11 +70,17 @@ id  ts  type  sha256  prev  role  trials  verdict
 свободны, `artifact` необязателен. Вскрытий не ограничено (E4), в статистику не
 входят (C3).
 
-**подтверждение** — `claim` обязателен, `artifact` обязателен, набор ключей
-`values` обязан **точно** совпасть с объявленным в Protocol. Вердикт вычисляет
-скрипт. Отказ, если ящик уже вскрыт (E7, C2), если нет действующего Protocol,
-если `trials ≠ 1`, если бюджет подтверждений исчерпан. В запись попадают также
-`alpha`, `family_risk` и `protocol_sha256`.
+**подтверждение** — `claim` обязателен, `artifact` обязателен, `candidate`
+обязателен, набор ключей `values` обязан **точно** совпасть с объявленным в
+Protocol. Вердикт вычисляет скрипт. Отказ, если ящик уже вскрыт (E7, C2), если
+нет действующего Protocol, если `trials ≠ 1`, если бюджет подтверждений
+исчерпан. В запись попадают также `candidate`, `alpha`, `family_risk` и
+`protocol_sha256`.
+
+`candidate` — имя предъявленного кандидата. При именном `verdict_candidates` он
+обязан принадлежать этому списку (E8); при символьном `"<selection>"` —
+объявленному `selection.space`, и это та же проверка F8, перенесённая с
+заморозки на вскрытие.
 
 ## 5. `close` и `diverge`
 
@@ -181,7 +187,7 @@ JSON. Поля и их обоснование — `notes/protocol-schema.md` §1
     {"name": "c_family_risk", "value": 0.05, "unit": "1",
      "provenance": "назначено", "basis": "потолок семейного риска, назначен автором"}
   ],
-  "verdict_candidates": ["b2"],
+  "verdict_candidates": ["b2"],          // либо ["<selection>"] — см. §4
   "slices": [{"id": "q1", "definition": "первый квартал", "bears_verdict": false}],
   "verdict_box": [{"lockbox_sha256": "…", "box": "confirm_2020"}],
   "decision_rule": {"all": [
