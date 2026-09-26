@@ -29,7 +29,8 @@
 
 Запуск:
     python3 tools/est_ev.py <путь к csv>
-Печатает JSON с ключами: EV.point, EV.ci_low, EV.ci_high, bets, accuracy.
+Печатает JSON с ключами, которых ждёт Protocol после развёртки величин (P5):
+EV.point, EV.ci_low, EV.ci_high, bets.point, accuracy.point.
 """
 import csv
 import json
@@ -80,8 +81,8 @@ def estimate(rows):
         "EV.point": point,
         "EV.ci_low": percentile(boot, 1 - LEVEL) if n else 0.0,
         "EV.ci_high": percentile(boot, LEVEL) if n else 0.0,
-        "bets": n,
-        "accuracy": wins / n if n else 0.0,
+        "bets.point": n,
+        "accuracy.point": wins / n if n else 0.0,
     }
 
 
