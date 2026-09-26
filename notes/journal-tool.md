@@ -194,6 +194,7 @@ JSON. Поля и их обоснование — `notes/protocol-schema.md` §1
     {"left": {"quantity": "pnl_excess", "take": "ci_low"},
      "op": ">=", "right": {"const": "c_payback"}}]},
   "selection": {"box": {"lockbox_sha256": "…", "box": "scout_2019"},
+                       // либо список таких объектов при многошаговом отборе
                 "objective": "argmax pnl_excess",
                 "space": {"model": ["b1", "b2"], "C": [0.1, 1, 10]}},
   "multiplicity": {"dependence": "unknown", "combine": "union_bound",

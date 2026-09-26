@@ -471,17 +471,24 @@ def validate_protocol(root: Path, prot: dict, lockbox: dict, entries: list[dict]
 
     # отбор кандидата
     sel = prot.get("selection") or {}
-    sbox = sel.get("box") or {}
-    if sbox.get("lockbox_sha256") != lb_sha:
-        raise Refused("selection.box ссылается не на действующую заморозку Lockbox")
-    srole = box_role(root, lockbox, sbox.get("box", ""))
-    if srole != "разведка":
-        raise Refused(
-            f"selection.box {sbox.get('box')!r} имеет роль {srole!r}: отбор ведётся "
-            "на разведке (E14, E15)")
-    if (sbox.get("lockbox_sha256"), sbox.get("box")) in \
-            {(b["lockbox_sha256"], b["box"]) for b in boxes}:
-        raise Refused("selection.box и verdict_box — один ящик (E15)")
+    # box — один ящик либо список: схема Lockbox бывает многошаговой (трейн 6 мес →
+    # отбор на первом разведочном; гейт не взят → трейн 12 мес → отбор на втором).
+    # E6 требует объявить критерий до разведки и числа ящиков не ограничивает.
+    sboxes = sel.get("box")
+    sboxes = sboxes if isinstance(sboxes, list) else [sboxes or {}]
+    if not sboxes:
+        raise Refused("selection.box пуст: ящик отбора обязан быть назван (E6)")
+    verdict_pairs = {(b["lockbox_sha256"], b["box"]) for b in boxes}
+    for sbox in sboxes:
+        if not isinstance(sbox, dict) or sbox.get("lockbox_sha256") != lb_sha:
+            raise Refused("selection.box ссылается не на действующую заморозку Lockbox")
+        srole = box_role(root, lockbox, sbox.get("box", ""))
+        if srole != "разведка":
+            raise Refused(
+                f"selection.box {sbox.get('box')!r} имеет роль {srole!r}: отбор ведётся "
+                "на разведке (E14, E15)")
+        if (sbox.get("lockbox_sha256"), sbox.get("box")) in verdict_pairs:
+            raise Refused("selection.box и verdict_box — один ящик (E15)")
     obj = str(_need(sel, "objective", "selection"))
     parts = obj.split()
     if len(parts) != 2 or parts[0] not in {"argmax", "argmin"} or parts[1] not in quantities:

@@ -62,6 +62,7 @@ root = pathlib.Path(tempfile.mkdtemp(prefix="journal-test-"))
 (root / "est.py").write_text("def q(pred, truth):\n    return 0.0\n", encoding="utf-8")
 (root / "lockbox.json").write_text(json.dumps({
     "boxes": {"scout": {"role": "разведка"},
+              "scout2": {"role": "разведка"},
               "confirm_a": {"role": "подтверждение"},
               "confirm_b": {"role": "подтверждение"}},
     "independence": {"scout_vs_confirm": 0.81, "between_windows": 0.62},
@@ -271,6 +272,14 @@ case("verdict_box с ролью разведка",
 case("selection.box подтверждающий",
      lambda: V(mod(selection={**BASE["selection"], "box": box("confirm_b")})),
      "отбор ведётся")
+SEL2 = lambda b: mod(selection={**BASE["selection"], "box": b})
+eq("список ящиков отбора: trials",
+   V(SEL2([box("scout"), box("scout2")]))["trials"], 1)
+case("в списке отбора подтверждающий",
+     lambda: V(SEL2([box("scout"), box("confirm_b")])), "отбор ведётся")
+case("в списке отбора ящик вердикта",
+     lambda: V(SEL2([box("scout"), box("confirm_a")])), "отбор ведётся")
+case("пустой список ящиков отбора", lambda: V(SEL2([])), "selection.box пуст")
 case("objective — суждение",
      lambda: V(mod(selection={**BASE["selection"],
                               "objective": "тот, который выглядит осмысленно"})),
