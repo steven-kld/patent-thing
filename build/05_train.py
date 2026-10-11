@@ -43,6 +43,7 @@ import hashlib
 import itertools
 import json
 import os
+import time
 
 import joblib
 import numpy as np
@@ -263,6 +264,11 @@ def main():
     train = set(ids)
     summary = {"n_train": len(ids), "share_103": float(y.mean()), "configs": {}}
     folds = None
+    # Прогресс: сколько конфигураций готово, сколько прошло и сколько примерно
+    # осталось (оценка по средней скорости уже готовых; mlp медленнее logreg,
+    # поэтому оценка в начале прыгает).
+    total = len(CHUNKINGS) * len(VARIANTS) * len(DIMS) * len(POOLINGS) * len(HEADS)
+    done, t0 = 0, time.time()
 
     for chunking in CHUNKINGS:
         app, field, vec = load_chunks(chunking, train)
@@ -280,7 +286,12 @@ def main():
                 model, platt, info = train_config(head, X, y, folds)
                 joblib.dump({"model": model, "platt": platt, **info}, f"{a.out}/{name}.joblib")
                 summary["configs"][name] = info
-                print(f"{name}: {info['hp']}  cv log-loss {info['cv_logloss']:.5f}", flush=True)
+                done += 1
+                el = time.time() - t0
+                eta = el / done * (total - done)
+                print(f"[{done}/{total} {done / total:4.0%}  прошло {el / 60:5.1f} мин, "
+                      f"осталось ~{eta / 60:5.1f} мин]  {name}: {info['hp']}  "
+                      f"cv log-loss {info['cv_logloss']:.5f}", flush=True)
 
     # Отпечаток всего обучения: сводка + веса всех моделей. Файлы .joblib сами по
     # себе хешировать нельзя — упаковка может отличаться при тех же весах.
