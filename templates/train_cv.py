@@ -1,4 +1,4 @@
-"""Обучение голов на train с кросс-валидацией. Обобщение build/05_train.py эксперимента №1.
+"""Обучение голов на train с кросс-валидацией.
 
 Читает ТОЛЬКО объекты из `--ids` (train) и их метки. Разведку и ящик не трогает:
 векторы фильтруются по списку при чтении, лишние в память не попадают.
@@ -20,14 +20,14 @@ out-of-fold оценки для пилота), <out>/ids.txt (порядок с�
 Лог — процент и ETA. `--only` и `--compare` — проверка детерминизма на подмножестве:
 веса и калибратор сверяются побитово с прошлым прогоном.
 
-Ориентир эксперимента №1: 9,5 тыс. объектов, 96 конфигураций — ~2 ч на 8 ядрах CPU.
+Ориентир: 9,5 тыс. объектов × 768, 96 конфигураций — ~2 ч на 8 ядрах CPU.
 Требует scikit-learn, joblib.
 
 Пример:
     python3 templates/train_cv.py --out ~/exp-work/train/run1 \
       --vec small=~/exp-work/vec/emb_small --vec large=~/exp-work/vec/emb_large \
       --ids ~/exp-work/data/train_ids.txt --labels ~/exp-work/data/labels.parquet \
-      --label-col rejection_103 --variant tacd=ta+c+d --variant c=c --group-field ta
+      --label-col label --variant all=ta+c+d --variant c=c --group-field ta
 """
 import argparse
 import copy

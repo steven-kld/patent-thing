@@ -1,4 +1,4 @@
-"""Почти-дубликаты («братья») и их вклад в разброс. Обобщение build/03_siblings.py.
+"""Почти-дубликаты («братья») и их вклад в разброс.
 
 Только train (метки train свободны, O6). Братья — связные компоненты по
 cos(векторов поля `--field`) ≥ порога. Для каждого порога: число групп, доля
@@ -7,14 +7,13 @@ train в группах, ρ — внутригрупповая корреляц�
 независимости. Плюс худший случай: все братья внутри k действий.
 
 Зачем: бутстрап по отдельным действиям (block 1) верен, только если исходы
-независимы; братья с одинаковым исходом занижают интервал и α (дефект 3
-ревизии 26 эксперимента №1). Итог №1: ρ 0,40–0,56, доля 0,3–2,8%, худший
-случай ×1,08 при 1629 действиях — правило «брат → пас» сняло вопрос.
+независимы; братья с одинаковым исходом занижают интервал и α. Если Deff
+заметен — правило «брат → пас» на ставках или бутстрап по группам.
 
 Пример:
     python3 templates/near_dups.py --vec ~/exp-work/vec/emb_small --field ta \
       --ids ~/exp-work/data/train_ids.txt --labels ~/exp-work/data/labels.parquet \
-      --label-col rejection_103 --k 300,800,1629
+      --label-col label --k 300,800,1600
 """
 import argparse
 import os
@@ -53,7 +52,7 @@ def main():
     ap.add_argument("--label-col", required=True)
     ap.add_argument("--id-col", default="id")
     ap.add_argument("--thresholds", default="0.99,0.97,0.95")
-    ap.add_argument("--k", default="300,800,1629")
+    ap.add_argument("--k", default="300,800,1600")
     a = ap.parse_args()
 
     ids = open(os.path.expanduser(a.ids)).read().split()
