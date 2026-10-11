@@ -257,7 +257,12 @@ def train_config(head, X, y, folds):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
+    # Проверка воспроизводимости без полного прогона: обучить только названные
+    # конфигурации (через запятую) и сверить их веса с прошлым прогоном.
+    ap.add_argument("--only", help="имена конфигураций через запятую")
+    ap.add_argument("--compare", help="папка прошлого прогона для побитовой сверки весов")
     a = ap.parse_args()
+    only = set(a.only.split(",")) if a.only else None
     os.makedirs(a.out, exist_ok=True)
 
     ids, y = train_ids_and_labels()
@@ -267,7 +272,8 @@ def main():
     # Прогресс: сколько конфигураций готово, сколько прошло и сколько примерно
     # осталось (оценка по средней скорости уже готовых; mlp медленнее logreg,
     # поэтому оценка в начале прыгает).
-    total = len(CHUNKINGS) * len(VARIANTS) * len(DIMS) * len(POOLINGS) * len(HEADS)
+    total = len(only) if only else \
+        len(CHUNKINGS) * len(VARIANTS) * len(DIMS) * len(POOLINGS) * len(HEADS)
     done, t0 = 0, time.time()
 
     for chunking in CHUNKINGS:
@@ -280,9 +286,14 @@ def main():
             groups = sibling_groups(ids, app, field, vec)
             folds = list(GroupKFold(n_splits=5).split(np.zeros(len(y)), y, groups))
         for variant, dim, pooling in itertools.product(VARIANTS, DIMS, POOLINGS):
+            names = [f"{chunking}_{variant}_{h}_{dim}_{pooling}" for h in HEADS]
+            if only and not only & set(names):
+                continue
             X = app_matrix(ids, app, field, vec, variant, dim, pooling)
             for head in HEADS:
                 name = f"{chunking}_{variant}_{head}_{dim}_{pooling}"
+                if only and name not in only:
+                    continue
                 model, platt, info = train_config(head, X, y, folds)
                 joblib.dump({"model": model, "platt": platt, **info}, f"{a.out}/{name}.joblib")
                 summary["configs"][name] = info
@@ -299,10 +310,31 @@ def main():
         json.dump(summary, f, ensure_ascii=False, indent=1, sort_keys=True)
     h = hashlib.sha256(open(f"{a.out}/summary.json", "rb").read())
     for p in sorted(glob.glob(f"{a.out}/*.joblib")):
-        m = joblib.load(p)["model"]
-        for w in (m.coef_, m.intercept_) if hasattr(m, "coef_") else (*m.coefs_, *m.intercepts_):
-            h.update(np.ascontiguousarray(w).tobytes())
+        h.update(weights_bytes(p))
     print("sha256 обучения:", h.hexdigest())
+
+    # Побитовая сверка с прошлым прогоном: веса модели и калибратора каждой
+    # конфигурации обязаны совпасть до последнего бита.
+    if a.compare:
+        ok = True
+        for name in sorted(summary["configs"]):
+            same = weights_bytes(f"{a.out}/{name}.joblib") == \
+                weights_bytes(f"{a.compare}/{name}.joblib")
+            ok &= same
+            print(f"  {name}: {'совпало' if same else 'НЕ СОВПАЛО'}")
+        print("СВЕРКА:", "совпало" if ok else "НЕ СОВПАЛО")
+
+
+def weights_bytes(path):
+    """Веса модели и калибратора одной конфигурации — байтами.
+
+    Файлы .joblib целиком не сравниваются: упаковка может отличаться при тех
+    же весах. Сравниваются сами числа.
+    """
+    d = joblib.load(path)
+    m, pl = d["model"], d["platt"]
+    ws = (m.coef_, m.intercept_) if hasattr(m, "coef_") else (*m.coefs_, *m.intercepts_)
+    return b"".join(np.ascontiguousarray(w).tobytes() for w in (*ws, pl.coef_, pl.intercept_))
 
 
 if __name__ == "__main__":
