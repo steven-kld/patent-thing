@@ -1,13 +1,9 @@
 {
   "permissions": {
+    "allow": ["Bash(git *)"],
     "deny": [
-      "Bash(git *)",
-      "Bash(git)",
-      "Bash(gh *)",
-      "Write(.git/**)",
-      "Edit(.git/**)",
-      "Write(.gitignore)",
-      "Edit(.gitignore)"
+      "Bash(git push --force*)", "Bash(git push -f*)",
+      "Write(.git/**)", "Edit(.git/**)"
     ]
   }
 }
