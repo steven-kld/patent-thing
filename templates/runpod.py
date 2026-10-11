@@ -19,7 +19,8 @@
     python3 templates/runpod.py list
     python3 templates/runpod.py terminate <pod_id>
 
-Под удаляется только явной командой terminate (см. notes/workflow.md §6).
+Под удаляется автоматически сразу после скачивания результатов и сверки хешей
+(notes/workflow.md §6), неисправный — сразу; не оставлять работать вхолостую.
 """
 import json
 import os
